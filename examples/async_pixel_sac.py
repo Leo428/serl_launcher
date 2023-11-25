@@ -16,16 +16,18 @@ import tqdm
 from absl import app, flags
 from flax import linen as nn
 from gym.wrappers.record_episode_statistics import RecordEpisodeStatistics
+from gym.wrappers.pixel_observation import PixelObservationWrapper
 
 from jaxrl_m.agents.continuous.sac import SACAgent
 from jaxrl_m.common.evaluation import evaluate
 from jaxrl_m.utils.timer_utils import Timer
+from jaxrl_m.envs.wrappers.chunking import ChunkingWrapper
 
 from edgeml.trainer import TrainerServer, TrainerClient, TrainerTunnel
 from edgeml.data.data_store import QueuedDataStore
 
 from jaxrl_m_common import ReplayBufferDataStore
-from jaxrl_m_common import make_agent, make_trainer_config, make_wandb_logger
+from jaxrl_m_common import make_pixel_agent, make_trainer_config, make_wandb_logger
 
 FLAGS = flags.FLAGS
 
@@ -116,7 +118,7 @@ def actor(agent: SACAgent, data_store, env, sampling_rng, tunnel=None):
         with timer.context("step_env"):
 
             next_obs, reward, done, truncated, info = env.step(actions)
-            next_obs = np.asarray(next_obs, dtype=np.float32)
+            # next_obs = np.asarray(next_obs, dtype=np.float32)
             reward = np.asarray(reward, dtype=np.float32)
             info = np.asarray(info)
             running_return += reward
@@ -236,9 +238,10 @@ def main(_):
         env = gym.make(FLAGS.env, render_mode="human")
     else:
         env = gym.make(FLAGS.env)
+    env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
 
     rng, sampling_rng = jax.random.split(rng)
-    agent: SACAgent = make_agent(
+    agent: SACAgent = make_pixel_agent(
         sample_obs=env.observation_space.sample(),
         sample_action=env.action_space.sample(),
     )
