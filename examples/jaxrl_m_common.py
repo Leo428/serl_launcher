@@ -3,7 +3,7 @@
 # NOTE: this requires jaxrl_m to be installed: 
 #       https://github.com/rail-berkeley/jaxrl_minimal
 
-import gym
+import gymnasium as gym
 import jax
 from jax import nn
 from threading import Lock

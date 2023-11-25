@@ -7,16 +7,15 @@
 import time
 from functools import partial
 
-import gym
-import robohive
+import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import tqdm
 from absl import app, flags
 from flax import linen as nn
-from gym.wrappers.record_episode_statistics import RecordEpisodeStatistics
-from gym.wrappers.pixel_observation import PixelObservationWrapper
+from gymnasium.wrappers.record_episode_statistics import RecordEpisodeStatistics
+from gymnasium.wrappers.pixel_observation import PixelObservationWrapper
 
 from jaxrl_m.agents.continuous.sac import SACAgent
 from jaxrl_m.common.evaluation import evaluate

@@ -7,15 +7,16 @@
 import time
 from functools import partial
 
-import gym
-import robohive
+import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import tqdm
 from absl import app, flags
 from flax import linen as nn
-from gym.wrappers.record_episode_statistics import RecordEpisodeStatistics
+from gymnasium.wrappers.record_episode_statistics import RecordEpisodeStatistics
+
+import mjenv
 
 from jaxrl_m.agents.continuous.sac import SACAgent
 from jaxrl_m.common.evaluation import evaluate
@@ -86,6 +87,8 @@ def actor(agent: SACAgent, data_store, env, sampling_rng, tunnel=None):
     client.recv_network_callback(update_params)
 
     eval_env = gym.make(FLAGS.env)
+    if FLAGS.env == "PandaPickCube-v0":
+        eval_env = gym.wrappers.FlattenObservation(eval_env)
     eval_env = RecordEpisodeStatistics(eval_env)
 
     obs, _ = env.reset()
@@ -236,6 +239,9 @@ def main(_):
         env = gym.make(FLAGS.env, render_mode="human")
     else:
         env = gym.make(FLAGS.env)
+    
+    if FLAGS.env == "PandaPickCube-v0":
+        env = gym.wrappers.FlattenObservation(env)
 
     rng, sampling_rng = jax.random.split(rng)
     agent: SACAgent = make_agent(
