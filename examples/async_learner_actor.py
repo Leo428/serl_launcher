@@ -245,6 +245,7 @@ def main(_):
 
     rng, sampling_rng = jax.random.split(rng)
     agent: SACAgent = make_agent(
+        seed=FLAGS.seed,
         sample_obs=env.observation_space.sample(),
         sample_action=env.action_space.sample(),
     )
