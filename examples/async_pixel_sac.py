@@ -15,11 +15,13 @@ import tqdm
 from absl import app, flags
 from flax import linen as nn
 from gymnasium.wrappers.record_episode_statistics import RecordEpisodeStatistics
-from gymnasium.wrappers.pixel_observation import PixelObservationWrapper
+
+import mjenv
 
 from jaxrl_m.agents.continuous.sac import SACAgent
 from jaxrl_m.common.evaluation import evaluate
 from jaxrl_m.utils.timer_utils import Timer
+from jaxrl_m.envs.wrappers.franka_wrappers import FrankaSERLObsWrapper
 from jaxrl_m.envs.wrappers.chunking import ChunkingWrapper
 
 from edgeml.trainer import TrainerServer, TrainerClient, TrainerTunnel
@@ -39,8 +41,8 @@ flags.DEFINE_bool("save_model", False, "Whether to save model.")
 flags.DEFINE_integer("batch_size", 256, "Batch size.")
 flags.DEFINE_integer("utd_ratio", 8, "UTD ratio.")
 
-flags.DEFINE_integer("max_steps", 1000000, "Maximum number of training steps.")
-flags.DEFINE_integer("replay_buffer_capacity", 1000000, "Replay buffer capacity.")
+flags.DEFINE_integer("max_steps", 100000, "Maximum number of training steps.")
+flags.DEFINE_integer("replay_buffer_capacity", 100000, "Replay buffer capacity.")
 
 flags.DEFINE_integer("random_steps", 500, "Sample random actions for this many steps.")
 flags.DEFINE_integer("training_starts", 1000, "Training starts after this step.")
@@ -56,6 +58,7 @@ flags.DEFINE_boolean("actor", False, "Is this a learner or a trainer.")
 flags.DEFINE_boolean("render", False, "Render the environment.")
 flags.DEFINE_string("ip", "localhost", "IP address of the learner.")
 
+flags.DEFINE_boolean("debug", False, "Debug mode.")
 
 def print_green(x): return print("\033[92m {}\033[00m" .format(x))
 
@@ -87,6 +90,10 @@ def actor(agent: SACAgent, data_store, env, sampling_rng, tunnel=None):
     client.recv_network_callback(update_params)
 
     eval_env = gym.make(FLAGS.env)
+    if FLAGS.env == "PandaPickCube-v0":
+        eval_env = gym.wrappers.FlattenObservation(eval_env)
+    if FLAGS.env == "PandaPickCubeVision-v0":
+        eval_env = FrankaSERLObsWrapper(eval_env)
     eval_env = RecordEpisodeStatistics(eval_env)
 
     obs, _ = env.reset()
@@ -137,8 +144,8 @@ def actor(agent: SACAgent, data_store, env, sampling_rng, tunnel=None):
                 running_return = 0.0
                 obs, _ = env.reset()
 
-        if FLAGS.render:
-            env.render()
+        # if FLAGS.render:
+        #     env.render()
 
         if step % FLAGS.steps_per_update == 0:
             client.update()
@@ -237,10 +244,16 @@ def main(_):
         env = gym.make(FLAGS.env, render_mode="human")
     else:
         env = gym.make(FLAGS.env)
-    env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
+
+    if FLAGS.env == "PandaPickCube-v0":
+        env = gym.wrappers.FlattenObservation(env)
+    if FLAGS.env == "PandaPickCubeVision-v0":
+        env = FrankaSERLObsWrapper(env)
+        env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
 
     rng, sampling_rng = jax.random.split(rng)
     agent: SACAgent = make_pixel_agent(
+        seed=FLAGS.seed,
         sample_obs=env.observation_space.sample(),
         sample_action=env.action_space.sample(),
     )
@@ -262,6 +275,7 @@ def main(_):
         wandb_logger = make_wandb_logger(
             project="jaxrl_minimal",
             description=FLAGS.exp_name or FLAGS.env,
+            debug=FLAGS.debug,
         )
         return replay_buffer, wandb_logger
 

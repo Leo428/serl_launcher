@@ -82,21 +82,27 @@ def make_agent(seed, sample_obs, sample_action):
         critic_subsample_size=2,
     )
 
-def make_pixel_agent(sample_obs, sample_action):
+def make_pixel_agent(seed, sample_obs, sample_action):
+    image_keys = [key for key in sample_obs.keys() if key != 'state']
+    encoder_defs = {image_key: SmallEncoder(
+        features=(32, 64, 128, 256),
+        kernel_sizes=(3, 3, 3, 3),
+        strides=(2, 2, 2, 2),
+        padding='VALID',
+        pool_sizes = (2, 2, 1, 1),
+        pool_strides = (2, 2, 1, 1),
+        pool_padding= (0, 0, 0, 0),
+        pool_method='avg',
+        name=f'encoder_{image_key}',) 
+        for image_key in image_keys}
+
     return SACAgent.create_pixels(
-        jax.random.PRNGKey(0),
+        jax.random.PRNGKey(seed),
         sample_obs,
         sample_action,
         use_proprio=True,
-        encoder_def=SmallEncoder(
-            features=(32, 64, 128, 256),
-            kernel_sizes=(3, 3, 3, 3),
-            strides=(2, 2, 2, 2),
-            padding='VALID',
-            pool_sizes = (2, 2, 1, 1),
-            pool_strides = (2, 2, 1, 1),
-            pool_padding= (0, 0, 0, 0),
-            pool_method='avg',),
+        encoder_defs=encoder_defs,
+        image_keys=image_keys,
         policy_kwargs={
             "tanh_squash_distribution": True,
             "std_parameterization": "softplus",
@@ -129,6 +135,7 @@ def make_trainer_config():
 def make_wandb_logger(
     project: str = "edgeml",
     description: str = "jaxrl_m",
+    debug: bool = False,
 ):
     wandb_config = WandBLogger.get_default_config()
     wandb_config.update(
@@ -140,5 +147,6 @@ def make_wandb_logger(
     wandb_logger = WandBLogger(
         wandb_config=wandb_config,
         variant={},
+        debug=debug,
     )
     return wandb_logger
