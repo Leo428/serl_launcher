@@ -14,6 +14,7 @@ import numpy as np
 import tqdm
 from absl import app, flags
 from flax import linen as nn
+from flax.core import frozen_dict
 from gymnasium.wrappers.record_episode_statistics import RecordEpisodeStatistics
 
 import mjenv
@@ -23,6 +24,7 @@ from jaxrl_m.common.evaluation import evaluate
 from jaxrl_m.utils.timer_utils import Timer
 from jaxrl_m.envs.wrappers.franka_wrappers import FrankaSERLObsWrapper
 from jaxrl_m.envs.wrappers.chunking import ChunkingWrapper
+from jaxrl_m.vision.data_augmentations import batched_random_crop
 
 from edgeml.trainer import TrainerServer, TrainerClient, TrainerTunnel
 from edgeml.data.data_store import QueuedDataStore
@@ -169,7 +171,7 @@ def actor(agent: SACAgent, data_store, env, sampling_rng, tunnel=None):
 ##############################################################################
 
 
-def learner(agent, replay_buffer, wandb_logger=None, tunnel=None):
+def learner(rng, agent, replay_buffer, wandb_logger=None, tunnel=None):
     """
     The learner loop, which runs when "--learner" is set to True.
     NOTE: tunnel is used the transport layer for multi-threading
@@ -214,6 +216,21 @@ def learner(agent, replay_buffer, wandb_logger=None, tunnel=None):
             batch = replay_buffer.sample(FLAGS.batch_size * FLAGS.utd_ratio)
 
         with timer.context("train"):
+            rng, key_obs, key_next_obs = jax.random.split(rng, 3)
+            batch = frozen_dict.unfreeze(batch)
+            batch["observations"]["image"] = batched_random_crop(
+                batch["observations"]["image"],
+                key_obs,
+                padding=4,
+                num_batch_dims=2,
+            )
+            batch["next_observations"]["image"] = batched_random_crop(
+                batch["next_observations"]["image"],
+                key_next_obs,
+                padding=4,
+                num_batch_dims=2,
+            )
+            batch = frozen_dict.freeze(batch)
             agent, update_info = agent.update_high_utd(
                 batch, utd_ratio=FLAGS.utd_ratio
             )
@@ -280,11 +297,12 @@ def main(_):
         return replay_buffer, wandb_logger
 
     if FLAGS.learner:
+        sampling_rng = jax.device_put(sampling_rng, sharding.replicate())
         replay_buffer, wandb_logger = create_replay_buffer_and_wandb_logger()
 
         # learner loop
         print_green("starting learner loop")
-        learner(agent, replay_buffer, wandb_logger=wandb_logger, tunnel=None)
+        learner(sampling_rng, agent, replay_buffer, wandb_logger=wandb_logger, tunnel=None)
 
     elif FLAGS.actor:
         sampling_rng = jax.device_put(sampling_rng, sharding.replicate())
