@@ -17,6 +17,7 @@ from jaxrl_m.agents.continuous.sac import SACAgent
 # from jaxrl_m.data.replay_buffer import ReplayBuffer
 from jaxrl_m.vision.small_encoders import SmallEncoder
 from jaxrl_m.vision.efficient_net import EfficientNetEncoder
+from jaxrl_m.vision.resnet_v1 import ResNetEncoder, ResNetBlock
 
 from edgeml.trainer import TrainerConfig
 from edgeml.data.data_store import DataStoreBase
@@ -100,16 +101,26 @@ def make_pixel_agent(seed, sample_obs, sample_action):
     #     name=f'encoder_{image_key}',) 
     #     for image_key in image_keys}
 
-    from jeffnet.linen import create_model, EfficientNet
-    encoder, encoder_params = create_model('tf_mobilenetv3_large_100', pretrained=True)
+    # from jeffnet.linen import create_model, EfficientNet
+    # encoder, encoder_params = create_model('tf_mobilenetv3_large_100', pretrained=True)
+    # encoder_defs = {
+    #     image_key: EfficientNetEncoder(
+    #         encoder=encoder,
+    #         params=encoder_params,
+    #         name=f'encoder_{image_key}')
+    #     for image_key in image_keys
+    # }
+
     encoder_defs = {
-        image_key: EfficientNetEncoder(
-            encoder=encoder,
-            params=encoder_params,
-            name=f'encoder_{image_key}')
+        image_key: ResNetEncoder(
+            name=f'encoder_{image_key}',
+            stage_sizes=(2, 2, 2, 2),
+            block_cls=ResNetBlock,
+            pooling_method='spatial_learned_embeddings',
+            num_spatial_blocks=4,
+        )
         for image_key in image_keys
     }
-
     return DrQAgent.create_pixels(
         jax.random.PRNGKey(seed),
         sample_obs,
