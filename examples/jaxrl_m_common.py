@@ -131,9 +131,9 @@ def make_pixel_agent(seed, sample_obs, sample_action):
             "use_layer_norm": True,
             "hidden_dims": [256, 256],
         },
-        temperature_init=1e-2,
+        temperature_init=0.1,
         discount=0.99,
-        backup_entropy=True,
+        backup_entropy=False,
         critic_ensemble_size=10,
         critic_subsample_size=2,
     )

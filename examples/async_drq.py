@@ -137,8 +137,10 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng, tunnel=None):
                     actions=actions,
                     next_observations=next_obs,
                     rewards=reward,
-                    masks=1.0 - done,
-                    dones=done,
+                    # masks=1.0 - done,
+                    # dones=done,
+                    masks=1.0,
+                    dones=False,
                 )
             )
 
@@ -206,8 +208,8 @@ def learner(rng, agent: DrQAgent, replay_buffer, replay_iterator, wandb_logger=N
     pbar.close()
 
     # send the initial network to the actor
-    server.publish_network(agent.state.params)
-    print_green('sent initial network to actor')
+    # server.publish_network(agent.state.params)
+    # print_green('sent initial network to actor')
 
     # wait till the replay buffer is filled with enough data
     timer = Timer()
