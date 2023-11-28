@@ -8,6 +8,7 @@ import jax
 from jax import nn
 from threading import Lock
 from collections import deque
+from functools import partial
 
 from jaxrl_m.agents.continuous.sac import SACAgent
 from jaxrl_m.agents.continuous.drq import DrQAgent
@@ -101,16 +102,6 @@ def make_pixel_agent(seed, sample_obs, sample_action):
     #     name=f'encoder_{image_key}',) 
     #     for image_key in image_keys}
 
-    from jeffnet.linen import create_model, EfficientNet
-    encoder, encoder_params = create_model('tf_mobilenetv3_large_100', pretrained=True)
-    encoder_defs = {
-        image_key: EfficientNetEncoder(
-            encoder=encoder,
-            params=encoder_params,
-            name=f'encoder_{image_key}')
-        for image_key in image_keys
-    }
-
     # encoder_defs = {
     #     image_key: ResNetEncoder(
     #         name=f'encoder_{image_key}',
@@ -126,7 +117,6 @@ def make_pixel_agent(seed, sample_obs, sample_action):
         sample_obs,
         sample_action,
         use_proprio=True,
-        encoder_defs=encoder_defs,
         image_keys=image_keys,
         policy_kwargs={
             "tanh_squash_distribution": True,

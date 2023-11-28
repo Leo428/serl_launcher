@@ -96,6 +96,7 @@ def actor(agent: DrQAgent, data_store, env, sampling_rng, tunnel=None):
         eval_env = gym.wrappers.FlattenObservation(eval_env)
     if FLAGS.env == "PandaPickCubeVision-v0":
         eval_env = FrankaSERLObsWrapper(eval_env)
+        eval_env = ChunkingWrapper(eval_env, obs_horizon=1, act_exec_horizon=None)
     eval_env = RecordEpisodeStatistics(eval_env)
 
     obs, _ = env.reset()
@@ -215,15 +216,15 @@ def learner(rng, agent: DrQAgent, replay_buffer, replay_iterator, wandb_logger=N
     timer = Timer()
     for step in tqdm.tqdm(range(FLAGS.max_steps), dynamic_ncols=True, desc="learner"):
         # Train the networks
-        for critic_step in range(FLAGS.utd_ratio - 1):
-            with timer.context("sample_replay_buffer"):
-                batch = next(replay_iterator)
+        # for critic_step in range(FLAGS.utd_ratio - 1):
+        #     with timer.context("sample_replay_buffer"):
+        #         batch = next(replay_iterator)
 
-            with timer.context("train_critics"):
-                agent, critics_info = agent.update_critics(
-                    batch,
-                )
-                agent = jax.block_until_ready(agent)
+        #     with timer.context("train_critics"):
+        #         agent, critics_info = agent.update_critics(
+        #             batch,
+        #         )
+        #         agent = jax.block_until_ready(agent)
 
         with timer.context("train"):
             batch = next(replay_iterator)
