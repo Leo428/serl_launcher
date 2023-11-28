@@ -208,8 +208,8 @@ def learner(rng, agent: DrQAgent, replay_buffer, replay_iterator, wandb_logger=N
     pbar.close()
 
     # send the initial network to the actor
-    # server.publish_network(agent.state.params)
-    # print_green('sent initial network to actor')
+    server.publish_network(agent.state.params)
+    print_green('sent initial network to actor')
 
     # wait till the replay buffer is filled with enough data
     timer = Timer()
