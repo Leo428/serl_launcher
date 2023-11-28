@@ -216,15 +216,15 @@ def learner(rng, agent: DrQAgent, replay_buffer, replay_iterator, wandb_logger=N
     timer = Timer()
     for step in tqdm.tqdm(range(FLAGS.max_steps), dynamic_ncols=True, desc="learner"):
         # Train the networks
-        # for critic_step in range(FLAGS.utd_ratio - 1):
-        #     with timer.context("sample_replay_buffer"):
-        #         batch = next(replay_iterator)
+        for critic_step in range(FLAGS.utd_ratio - 1):
+            with timer.context("sample_replay_buffer"):
+                batch = next(replay_iterator)
 
-        #     with timer.context("train_critics"):
-        #         agent, critics_info = agent.update_critics(
-        #             batch,
-        #         )
-        #         agent = jax.block_until_ready(agent)
+            with timer.context("train_critics"):
+                agent, critics_info = agent.update_critics(
+                    batch,
+                )
+                agent = jax.block_until_ready(agent)
 
         with timer.context("train"):
             batch = next(replay_iterator)
