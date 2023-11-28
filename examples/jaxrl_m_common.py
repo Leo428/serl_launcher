@@ -7,30 +7,34 @@ import gymnasium as gym
 import jax
 from jax import nn
 from threading import Lock
+from collections import deque
 
 from jaxrl_m.agents.continuous.sac import SACAgent
+from jaxrl_m.agents.continuous.drq import DrQAgent
 from jaxrl_m.common.wandb import WandBLogger
 from jaxrl_m.common.wandb import WandBLogger
 from jaxrl_m.agents.continuous.sac import SACAgent
-from jaxrl_m.data.replay_buffer import ReplayBuffer
+# from jaxrl_m.data.replay_buffer import ReplayBuffer
 from jaxrl_m.vision.small_encoders import SmallEncoder
+from jaxrl_m.vision.efficient_net import EfficientNetEncoder
 
 from edgeml.trainer import TrainerConfig
 from edgeml.data.data_store import DataStoreBase
 from edgeml.trainer import TrainerConfig
-
+from edgeml.data.serl_memory_efficient_replay_buffer import MemoryEfficientReplayBuffer
 
 ##############################################################################
 
 
-class ReplayBufferDataStore(ReplayBuffer, DataStoreBase):
+class ReplayBufferDataStore(MemoryEfficientReplayBuffer, DataStoreBase):
     def __init__(
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
         capacity: int,
     ):
-        ReplayBuffer.__init__(self, observation_space, action_space, capacity)
+        self.pixel_keys = [k for k in observation_space.spaces.keys() if k != 'state']
+        MemoryEfficientReplayBuffer.__init__(self, observation_space, action_space, capacity, self.pixel_keys)
         DataStoreBase.__init__(self, capacity)
         self._lock = Lock()
 
@@ -84,19 +88,29 @@ def make_agent(seed, sample_obs, sample_action):
 
 def make_pixel_agent(seed, sample_obs, sample_action):
     image_keys = [key for key in sample_obs.keys() if key != 'state']
-    encoder_defs = {image_key: SmallEncoder(
-        features=(32, 64, 128, 256),
-        kernel_sizes=(3, 3, 3, 3),
-        strides=(2, 2, 2, 2),
-        padding='VALID',
-        pool_sizes = (2, 2, 1, 1),
-        pool_strides = (2, 2, 1, 1),
-        pool_padding= (0, 0, 0, 0),
-        pool_method='avg',
-        name=f'encoder_{image_key}',) 
-        for image_key in image_keys}
+    # encoder_defs = {image_key: SmallEncoder(
+    #     features=(32, 64, 128, 256),
+    #     kernel_sizes=(3, 3, 3, 3),
+    #     strides=(2, 2, 2, 2),
+    #     padding='VALID',
+    #     pool_sizes = (2, 2, 1, 1),
+    #     pool_strides = (2, 2, 1, 1),
+    #     pool_padding= (0, 0, 0, 0),
+    #     pool_method='avg',
+    #     name=f'encoder_{image_key}',) 
+    #     for image_key in image_keys}
 
-    return SACAgent.create_pixels(
+    from jeffnet.linen import create_model, EfficientNet
+    encoder, encoder_params = create_model('tf_mobilenetv3_large_100', pretrained=True)
+    encoder_defs = {
+        image_key: EfficientNetEncoder(
+            encoder=encoder,
+            params=encoder_params,
+            name=f'encoder_{image_key}')
+        for image_key in image_keys
+    }
+
+    return DrQAgent.create_pixels(
         jax.random.PRNGKey(seed),
         sample_obs,
         sample_action,

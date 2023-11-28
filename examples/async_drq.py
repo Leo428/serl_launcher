@@ -19,7 +19,7 @@ from gymnasium.wrappers.record_episode_statistics import RecordEpisodeStatistics
 
 import mjenv
 
-from jaxrl_m.agents.continuous.sac import SACAgent
+from jaxrl_m.agents.continuous.drq import DrQAgent
 from jaxrl_m.common.evaluation import evaluate
 from jaxrl_m.utils.timer_utils import Timer
 from jaxrl_m.envs.wrappers.franka_wrappers import FrankaSERLObsWrapper
@@ -43,7 +43,7 @@ flags.DEFINE_bool("save_model", False, "Whether to save model.")
 flags.DEFINE_integer("batch_size", 256, "Batch size.")
 flags.DEFINE_integer("utd_ratio", 8, "UTD ratio.")
 
-flags.DEFINE_integer("max_steps", 100000, "Maximum number of training steps.")
+flags.DEFINE_integer("max_steps", 1000000, "Maximum number of training steps.")
 flags.DEFINE_integer("replay_buffer_capacity", 100000, "Replay buffer capacity.")
 
 flags.DEFINE_integer("random_steps", 500, "Sample random actions for this many steps.")
@@ -67,7 +67,7 @@ def print_green(x): return print("\033[92m {}\033[00m" .format(x))
 ##############################################################################
 
 
-def actor(agent: SACAgent, data_store, env, sampling_rng, tunnel=None):
+def actor(agent: DrQAgent, data_store, env, sampling_rng, tunnel=None):
     """
     This is the actor loop, which runs when "--actor" is set to True.
     NOTE: tunnel is used the transport layer for multi-threading
@@ -138,6 +138,7 @@ def actor(agent: SACAgent, data_store, env, sampling_rng, tunnel=None):
                     next_observations=next_obs,
                     rewards=reward,
                     masks=1.0 - done,
+                    dones=done,
                 )
             )
 
@@ -171,7 +172,7 @@ def actor(agent: SACAgent, data_store, env, sampling_rng, tunnel=None):
 ##############################################################################
 
 
-def learner(rng, agent, replay_buffer, wandb_logger=None, tunnel=None):
+def learner(rng, agent: DrQAgent, replay_buffer, replay_iterator, wandb_logger=None, tunnel=None):
     """
     The learner loop, which runs when "--learner" is set to True.
     NOTE: tunnel is used the transport layer for multi-threading
@@ -212,36 +213,31 @@ def learner(rng, agent, replay_buffer, wandb_logger=None, tunnel=None):
     timer = Timer()
     for step in tqdm.tqdm(range(FLAGS.max_steps), dynamic_ncols=True, desc="learner"):
         # Train the networks
-        with timer.context("sample_replay_buffer"):
-            batch = replay_buffer.sample(FLAGS.batch_size * FLAGS.utd_ratio)
+        for critic_step in range(FLAGS.utd_ratio - 1):
+            with timer.context("sample_replay_buffer"):
+                batch = next(replay_iterator)
+
+            with timer.context("train_critics"):
+                agent, critics_info = agent.update_critics(
+                    batch,
+                )
+                agent = jax.block_until_ready(agent)
 
         with timer.context("train"):
-            rng, key_obs, key_next_obs = jax.random.split(rng, 3)
-            batch = frozen_dict.unfreeze(batch)
-            batch["observations"]["image"] = batched_random_crop(
-                batch["observations"]["image"],
-                key_obs,
-                padding=4,
-                num_batch_dims=2,
-            )
-            batch["next_observations"]["image"] = batched_random_crop(
-                batch["next_observations"]["image"],
-                key_next_obs,
-                padding=4,
-                num_batch_dims=2,
-            )
-            batch = frozen_dict.freeze(batch)
+            batch = next(replay_iterator)
             agent, update_info = agent.update_high_utd(
-                batch, utd_ratio=FLAGS.utd_ratio
+                batch, utd_ratio=1
             )
             agent = jax.block_until_ready(agent)
 
-            # publish the updated network
+        # publish the updated network
+        if step > 0 and step % (FLAGS.steps_per_update) == 0:
             server.publish_network(agent.state.params)
 
         if update_steps % FLAGS.log_period == 0 and wandb_logger:
             wandb_logger.log(update_info, step=update_steps)
             wandb_logger.log({"timer": timer.get_average_times()}, step=update_steps)
+
         update_steps += 1
 
 ##############################################################################
@@ -269,7 +265,7 @@ def main(_):
         env = ChunkingWrapper(env, obs_horizon=1, act_exec_horizon=None)
 
     rng, sampling_rng = jax.random.split(rng)
-    agent: SACAgent = make_pixel_agent(
+    agent: DrQAgent = make_pixel_agent(
         seed=FLAGS.seed,
         sample_obs=env.observation_space.sample(),
         sample_action=env.action_space.sample(),
@@ -277,7 +273,7 @@ def main(_):
 
     # replicate agent across devices
     # need the jnp.array to avoid a bug where device_put doesn't recognize primitives
-    agent: SACAgent = jax.device_put(
+    agent: DrQAgent = jax.device_put(
         jax.tree_map(jnp.array, agent), sharding.replicate()
     )
 
@@ -287,7 +283,6 @@ def main(_):
             env.action_space,
             capacity=FLAGS.replay_buffer_capacity,
         )
-
         # set up wandb and logging
         wandb_logger = make_wandb_logger(
             project="jaxrl_minimal",
@@ -297,12 +292,19 @@ def main(_):
         return replay_buffer, wandb_logger
 
     if FLAGS.learner:
-        sampling_rng = jax.device_put(sampling_rng, sharding.replicate())
+        sampling_rng = jax.device_put(sampling_rng, device=sharding.replicate())
         replay_buffer, wandb_logger = create_replay_buffer_and_wandb_logger()
-
+        replay_iterator = replay_buffer.get_iterator(
+            sample_args={
+                # 'batch_size': FLAGS.batch_size * FLAGS.utd_ratio,
+                'batch_size': FLAGS.batch_size,
+                'pack_obs_and_next_obs': True,
+            },
+            device=sharding.replicate(),
+        )
         # learner loop
         print_green("starting learner loop")
-        learner(sampling_rng, agent, replay_buffer, wandb_logger=wandb_logger, tunnel=None)
+        learner(sampling_rng, agent, replay_buffer, replay_iterator=replay_iterator, wandb_logger=wandb_logger, tunnel=None)
 
     elif FLAGS.actor:
         sampling_rng = jax.device_put(sampling_rng, sharding.replicate())
